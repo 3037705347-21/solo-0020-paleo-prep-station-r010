@@ -34,7 +34,6 @@ func (s *Service) LogProgress(
 		if err := admission.BeginAttempt(); err != nil {
 			return err
 		}
-		m.DeferAdmission(admission)
 		previous := m.ProgressForPlan(planID)
 		entry, err := domain.NewProgressEntry(
 			s.nextID("progress"),
@@ -48,8 +47,8 @@ func (s *Service) LogProgress(
 			s.now(),
 		)
 		if err != nil {
-			admission.ConsumeAttempt()
-			m.DeferAdmission(admission)
+			// Returning here discards the whole mutation copy, including
+			// BeginAttempt: an invalid request leaves no residual state.
 			return err
 		}
 		if plan.Status == domain.PlanApproved {

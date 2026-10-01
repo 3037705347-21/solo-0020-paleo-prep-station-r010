@@ -44,9 +44,8 @@ func (r *MemoryRepository) Mutate(fn func(*Mutation) error) error {
 
 	tx := cloneMutation(r.state)
 	if err := fn(tx); err != nil {
-		for key, value := range tx.deferredAdmissions {
-			r.state.admissions[key] = value
-		}
+		// Discard the entire transaction copy: a rejected request leaves no
+		// trace on plan, specimen, progress, or admission state.
 		return err
 	}
 	r.state = tx.snapshot()
@@ -76,15 +75,11 @@ func cloneMutation(source state) *Mutation {
 	for key, value := range source.releases {
 		copied.releases[key] = value
 	}
-	return &Mutation{
-		state:              copied,
-		deferredAdmissions: make(map[string]domain.PlanAdmission),
-	}
+	return &Mutation{state: copied}
 }
 
 type Mutation struct {
-	state              state
-	deferredAdmissions map[string]domain.PlanAdmission
+	state state
 }
 
 func (m *Mutation) snapshot() state {
@@ -155,11 +150,6 @@ func (m *Mutation) GetAdmission(planID string) (domain.PlanAdmission, bool) {
 
 func (m *Mutation) PutAdmission(value domain.PlanAdmission) {
 	m.state.admissions[value.PlanID] = value
-}
-
-func (m *Mutation) DeferAdmission(value domain.PlanAdmission) {
-	m.state.admissions[value.PlanID] = value
-	m.deferredAdmissions[value.PlanID] = value
 }
 
 func (m *Mutation) HasOpenPlan(specimenID string) bool {

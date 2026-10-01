@@ -38,7 +38,10 @@ func (s *Service) CreatePlan(
 		if err != nil {
 			return err
 		}
-		admission := domain.NewPlanAdmission(plan, true)
+		// A draft plan carries its own unapproved admission fact; approval
+		// and progress both observe the same fact, so progress cannot be
+		// recorded before approval commits.
+		admission := domain.NewPlanAdmission(plan, false)
 		if err := specimen.MarkPlanned(s.now()); err != nil {
 			return err
 		}
@@ -75,13 +78,11 @@ func (s *Service) ApprovePlan(
 		}
 		admission, ok := m.GetAdmission(planID)
 		if !ok {
-			admission = domain.NewPlanAdmission(plan, true)
+			admission = domain.NewPlanAdmission(plan, false)
 		}
 		admission.Approved = true
-		if len(m.ProgressForPlan(planID)) == 0 {
-			if err := specimen.MarkPreparing(s.now()); err != nil {
-				return err
-			}
+		if err := specimen.MarkPreparing(s.now()); err != nil {
+			return err
 		}
 		m.PutPlan(plan)
 		m.PutAdmission(admission)

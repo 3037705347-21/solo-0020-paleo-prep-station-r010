@@ -36,7 +36,6 @@ type PlanAdmission struct {
 	SpecimenID  string
 	Approved    bool
 	AttemptOpen bool
-	Consumed    bool
 	Sequence    int
 	LastPercent int
 	Version     int
@@ -51,19 +50,21 @@ func NewPlanAdmission(plan PrepPlan, approved bool) PlanAdmission {
 	}
 }
 
+// AllowsProgress reports whether the plan's admission currently permits an
+// additional progress entry. Admission is granted only after approval, and
+// terminal plans never accept further entries.
 func (a PlanAdmission) AllowsProgress(plan PrepPlan) bool {
-	if a.Consumed || !a.Approved {
+	if !a.Approved {
 		return false
 	}
-	return plan.Status == PlanDraft ||
-		plan.Status == PlanApproved ||
-		plan.Status == PlanActive
+	return plan.Status == PlanApproved || plan.Status == PlanActive
 }
 
+// BeginAttempt opens an in-flight progress attempt on the admission. The flag
+// lives only inside the repository mutation copy, so it never survives a
+// rolled-back request; it exists to reject overlapping attempts under the
+// same mutation.
 func (a *PlanAdmission) BeginAttempt() error {
-	if a.Consumed {
-		return contracts.Conflict("plan_admission_consumed", "当前方案的准入已经被使用，不能继续记录进度")
-	}
 	if a.AttemptOpen {
 		return contracts.Conflict("plan_admission_busy", "当前方案已有进度尝试正在处理")
 	}
@@ -74,15 +75,8 @@ func (a *PlanAdmission) BeginAttempt() error {
 
 func (a *PlanAdmission) CompleteAttempt(sequence int, percent int) {
 	a.AttemptOpen = false
-	a.Consumed = false
 	a.Sequence = sequence
 	a.LastPercent = percent
-	a.Version++
-}
-
-func (a *PlanAdmission) ConsumeAttempt() {
-	a.AttemptOpen = false
-	a.Consumed = true
 	a.Version++
 }
 
