@@ -42,11 +42,10 @@ func (r *MemoryRepository) Mutate(fn func(*Mutation) error) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// 事务在状态副本上执行：成功才整体替换正式状态，
+	// 失败则丢弃整个副本，保证被拒绝的请求不留任何影响。
 	tx := cloneMutation(r.state)
 	if err := fn(tx); err != nil {
-		for key, value := range tx.deferredAdmissions {
-			r.state.admissions[key] = value
-		}
 		return err
 	}
 	r.state = tx.snapshot()
@@ -76,15 +75,11 @@ func cloneMutation(source state) *Mutation {
 	for key, value := range source.releases {
 		copied.releases[key] = value
 	}
-	return &Mutation{
-		state:              copied,
-		deferredAdmissions: make(map[string]domain.PlanAdmission),
-	}
+	return &Mutation{state: copied}
 }
 
 type Mutation struct {
-	state              state
-	deferredAdmissions map[string]domain.PlanAdmission
+	state state
 }
 
 func (m *Mutation) snapshot() state {
@@ -155,11 +150,6 @@ func (m *Mutation) GetAdmission(planID string) (domain.PlanAdmission, bool) {
 
 func (m *Mutation) PutAdmission(value domain.PlanAdmission) {
 	m.state.admissions[value.PlanID] = value
-}
-
-func (m *Mutation) DeferAdmission(value domain.PlanAdmission) {
-	m.state.admissions[value.PlanID] = value
-	m.deferredAdmissions[value.PlanID] = value
 }
 
 func (m *Mutation) HasOpenPlan(specimenID string) bool {

@@ -31,12 +31,13 @@ type PrepPlan struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
+// PlanAdmission 是审批与进度共同维护的同一份方案准入事实：
+// 只有审批把 Approved 翻转为 true 后，进度才允许写入；
+// Sequence/LastPercent 仅反映已被成功接受的进度。
 type PlanAdmission struct {
 	PlanID      string
 	SpecimenID  string
 	Approved    bool
-	AttemptOpen bool
-	Consumed    bool
 	Sequence    int
 	LastPercent int
 	Version     int
@@ -51,38 +52,28 @@ func NewPlanAdmission(plan PrepPlan, approved bool) PlanAdmission {
 	}
 }
 
+// MarkApproved 由审批流程调用，与方案状态推进共同发生。
+func (a *PlanAdmission) MarkApproved() {
+	if a.Approved {
+		return
+	}
+	a.Approved = true
+	a.Version++
+}
+
+// AllowsProgress 要求准入事实与方案状态一致：已批准的准入，
+// 且方案处于已审批或进行中。草稿与已结束方案都不能记录进度。
 func (a PlanAdmission) AllowsProgress(plan PrepPlan) bool {
-	if a.Consumed || !a.Approved {
+	if !a.Approved {
 		return false
 	}
-	return plan.Status == PlanDraft ||
-		plan.Status == PlanApproved ||
-		plan.Status == PlanActive
+	return plan.Status == PlanApproved || plan.Status == PlanActive
 }
 
-func (a *PlanAdmission) BeginAttempt() error {
-	if a.Consumed {
-		return contracts.Conflict("plan_admission_consumed", "当前方案的准入已经被使用，不能继续记录进度")
-	}
-	if a.AttemptOpen {
-		return contracts.Conflict("plan_admission_busy", "当前方案已有进度尝试正在处理")
-	}
-	a.AttemptOpen = true
-	a.Version++
-	return nil
-}
-
-func (a *PlanAdmission) CompleteAttempt(sequence int, percent int) {
-	a.AttemptOpen = false
-	a.Consumed = false
+// RecordAccepted 在一条进度被成功接受后推进准入事实。
+func (a *PlanAdmission) RecordAccepted(sequence int, percent int) {
 	a.Sequence = sequence
 	a.LastPercent = percent
-	a.Version++
-}
-
-func (a *PlanAdmission) ConsumeAttempt() {
-	a.AttemptOpen = false
-	a.Consumed = true
 	a.Version++
 }
 

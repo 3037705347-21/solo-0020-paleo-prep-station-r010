@@ -31,10 +31,6 @@ func (s *Service) LogProgress(
 		if !ok {
 			return contracts.Conflict("plan_admission_missing", "当前方案没有可用的准入事实")
 		}
-		if err := admission.BeginAttempt(); err != nil {
-			return err
-		}
-		m.DeferAdmission(admission)
 		previous := m.ProgressForPlan(planID)
 		entry, err := domain.NewProgressEntry(
 			s.nextID("progress"),
@@ -48,8 +44,8 @@ func (s *Service) LogProgress(
 			s.now(),
 		)
 		if err != nil {
-			admission.ConsumeAttempt()
-			m.DeferAdmission(admission)
+			// 校验失败直接返回：不改动准入事实、方案、标本或进度，
+			// 事务副本被整体丢弃，下一次请求不受任何影响。
 			return err
 		}
 		if plan.Status == domain.PlanApproved {
@@ -66,7 +62,7 @@ func (s *Service) LogProgress(
 			}
 		}
 		m.AppendProgress(entry)
-		admission.CompleteAttempt(entry.Sequence, entry.Percent)
+		admission.RecordAccepted(entry.Sequence, entry.Percent)
 		m.PutAdmission(admission)
 		m.PutPlan(plan)
 		m.PutSpecimen(specimen)

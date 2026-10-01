@@ -38,7 +38,8 @@ func (s *Service) CreatePlan(
 		if err != nil {
 			return err
 		}
-		admission := domain.NewPlanAdmission(plan, true)
+		// 草稿阶段的准入事实尚未被批准；只有审批成功后才翻转。
+		admission := domain.NewPlanAdmission(plan, false)
 		if err := specimen.MarkPlanned(s.now()); err != nil {
 			return err
 		}
@@ -75,13 +76,12 @@ func (s *Service) ApprovePlan(
 		}
 		admission, ok := m.GetAdmission(planID)
 		if !ok {
-			admission = domain.NewPlanAdmission(plan, true)
+			admission = domain.NewPlanAdmission(plan, false)
 		}
-		admission.Approved = true
-		if len(m.ProgressForPlan(planID)) == 0 {
-			if err := specimen.MarkPreparing(s.now()); err != nil {
-				return err
-			}
+		admission.MarkApproved()
+		// 审批成功的同时标本必须进入制备，与方案、准入事实在同一事务提交。
+		if err := specimen.MarkPreparing(s.now()); err != nil {
+			return err
 		}
 		m.PutPlan(plan)
 		m.PutAdmission(admission)
